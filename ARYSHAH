@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.22;
+
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+
+contract AryshahWithTieredRewards is Initializable, ERC20Upgradeable, OwnableUpgradeable, PausableUpgradeable {
+    uint256 public tokenPriceInUSD;
+
+    // آدرس کیف پول مالک (سخت‌کدشده)
+    address private constant OWNER_ADDRESS = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
+
+    struct Buyer {
+        uint256 totalPurchasedUSD;
+        uint256 totalRewards;
+    }
+
+    mapping(address => Buyer) public buyers;
+
+    event TokensPurchased(address indexed user, uint256 amountUSD, uint256 tokensReceived);
+    event RewardsClaimed(address indexed user, uint256 rewards);
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize() public initializer {
+        __ERC20_init("Aryshah", "ARY");
+        __Ownable_init(OWNER_ADDRESS); // تنظیم مالک به آدرس سخت‌کدشده
+        __Pausable_init();
+
+        // مقدار اولیه توکن‌ها: 2,000,000 توکن
+        _mint(OWNER_ADDRESS, 2000000 * 10 ** decimals());
+
+        // قیمت هر توکن: 0.1 دلار (در واحد wei: 0.1 * 1e18)
+        tokenPriceInUSD = 0.1 * 1e18;
+    }
+
+    function purchaseTokens(uint256 amountUSD) external whenNotPaused {
+        require(amountUSD > 0, "Amount must be greater than 0");
+
+        uint256 tokensToReceive = (amountUSD * 1e18) / tokenPriceInUSD;
+        require(tokensToReceive > 0, "Token amount too small");
+
+        _mint(msg.sender, tokensToReceive);
+        buyers[msg.sender].totalPurchasedUSD += amountUSD;
+
+        uint256 rewards = calculateRewards(amountUSD);
+        if (rewards > 0) {
+            _mint(msg.sender, rewards);
+            buyers[msg.sender].totalRewards += rewards;
+        }
+
+        emit TokensPurchased(msg.sender, amountUSD, tokensToReceive + rewards);
+    }
+
+    function calculateRewards(uint256 amountUSD) public pure returns (uint256) {
+        if (amountUSD >= 3000 * 1e18) {
+            return (amountUSD * 35) / 100;
+        } else if (amountUSD >= 1000 * 1e18) {
+            return (amountUSD * 22) / 100;
+        } else if (amountUSD >= 500 * 1e18) {
+            return (amountUSD * 15) / 100;
+        } else if (amountUSD >= 250 * 1e18) {
+            return (amountUSD * 7) / 100;
+        } else {
+            return 0;
+        }
+    }
+
+    function claimRewards() external whenNotPaused {
+        uint256 rewards = calculateRewards(buyers[msg.sender].totalPurchasedUSD);
+        require(rewards > 0, "No rewards available");
+
+        _mint(msg.sender, rewards);
+        buyers[msg.sender].totalRewards += rewards;
+
+        emit RewardsClaimed(msg.sender, rewards);
+    }
+
+    function setTokenPriceInUSD(uint256 _tokenPriceInUSD) external onlyOwner {
+        tokenPriceInUSD = _tokenPriceInUSD;
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+}
