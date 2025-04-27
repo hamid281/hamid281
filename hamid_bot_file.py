@@ -9,7 +9,7 @@ from telegram.ext import (
 )
 
 # تنظیمات
-TOKEN = os.getenv('7708534005:AAHxcmWAs82atcdiNLwuPw_3CDX_3A_hIfs')
+TOKEN = os.getenv('7708534005:AAGnDgY_NBd45sNFPnMCi6o6p4a1IDh5iyQ')
 ADMIN_ID = int(os.getenv('ADMIN_ID', '7759311246'))
 
 # دیتابیس محصولات
