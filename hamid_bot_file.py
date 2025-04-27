@@ -1,5 +1,6 @@
 import os
 import logging
+from threading import Thread, Lock
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -8,9 +9,12 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
-from dotenv import load_dotenv
 from flask import Flask
-from threading import Thread
+from waitress import serve
+from dotenv import load_dotenv
+
+# --- تنظیمات اولیه ---
+load_dotenv()
 
 # تنظیمات لاگ
 logging.basicConfig(
@@ -19,16 +23,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# بارگذاری متغیرهای محیطی
-load_dotenv()
+# قفل برای جلوگیری از اجرای چند نمونه
+bot_lock = Lock()
 
-# تنظیمات
+# --- تنظیمات ربات ---
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '7708534005:AAHxcmWAs82atcdiNLwuPw_3CDX_3A_hIfs')
 ADMIN_ID = int(os.getenv('ADMIN_ID', '7759311246'))
 MY_PHONE = "09120824174"
 MY_CARD = "6104-3378-3263-5559"
 
-# دیتابیس محصولات
+# --- دیتابیس محصولات ---
 products_db = {
     1: {'name': '🍕 پیتزا مخصوص', 'price': 120000, 'stock': 10},
     2: {'name': '🍔 همبرگر ویژه', 'price': 95000, 'stock': 8},
@@ -37,31 +41,27 @@ products_db = {
 
 user_carts = {}
 
-# پیام‌ها
+# --- پیام‌ها ---
 MESSAGES = {
     "welcome": "👋 خوش آمدید! برای سفارش، یکی از گزینه‌های زیر را انتخاب کنید.",
     "products": "🛍 لیست محصولات موجود:\n",
     "contact": f"📞 تماس با ما:\nشماره تماس: {MY_PHONE}\nایمیل: example@example.com",
     "cart_empty": "🛒 سبد خرید شما خالی است!",
     "cart": "📦 سبد خرید شما:\n",
-    "unknown": "دستور نامشخص!",
-    "admin_welcome": "🎛 خوش آمدید به پنل مدیریت",
-    "added_to_cart": "✅ محصول به سبد خرید اضافه شد!",
-    "checkout": f"💰 مبلغ قابل پرداخت: {{total}} تومان\n\n💳 برای پرداخت می‌توانید به شماره کارت زیر مبلغ را واریز کنید:\n{MY_CARD}\n\n📞 پس از پرداخت، شماره فیش پرداختی را به همراه آدرس به این شماره ارسال کنید: {MY_PHONE}"
+    "checkout": f"💰 مبلغ قابل پرداخت: {{total}} تومان\n\n💳 برای پرداخت به شماره کارت زیر واریز کنید:\n{MY_CARD}\n📞 پس از پرداخت، فیش را به {MY_PHONE} ارسال کنید"
 }
 
-# صفحه کلیدها
+# --- صفحه کلیدها ---
 KEYBOARD_MAIN = [
     [KeyboardButton("🛍 محصولات"), KeyboardButton("📞 تماس با ما")],
-    [KeyboardButton("🛒 سبد خرید"), KeyboardButton("💳 راهنمای پرداخت")]
+    [KeyboardButton("🛒 سبد خرید"), KeyboardButton("💳 پرداخت")]
 ]
 
-KEYBOARD_AFTER_ORDER = [
-    [KeyboardButton("📞 تماس با پشتیبانی")],
-    [KeyboardButton("🛍 خرید مجدد"), KeyboardButton("🏠 صفحه اصلی")]
-]
+KEYBOARD_PRODUCTS = [
+    [KeyboardButton(f"🛒 خرید {product['name']}")] for product in products_db.values()
+] + [[KeyboardButton("🔙 بازگشت")]]
 
-# توابع بات
+# --- توابع ربات ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_carts[user.id] = {}
@@ -73,14 +73,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     products_text = MESSAGES["products"]
     for pid, product in products_db.items():
-        products_text += f"{pid}. {product['name']} - {product['price']:,} تومان\n📦 موجودی: {product['stock']}\n\n"
+        products_text += f"{pid}. {product['name']} - {product['price']:,} تومان\nموجودی: {product['stock']}\n\n"
     
-    product_buttons = [[KeyboardButton(f"🛒 خرید {product['name']}")] for product in products_db.values()]
-    product_buttons.append([KeyboardButton("🔙 بازگشت")])
-
     await update.message.reply_text(
         products_text,
-        reply_markup=ReplyKeyboardMarkup(product_buttons, resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(KEYBOARD_PRODUCTS, resize_keyboard=True)
     )
 
 async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,20 +91,21 @@ async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_carts[user.id][pid] = user_carts[user.id].get(pid, 0) + 1
                 products_db[pid]['stock'] -= 1
                 await update.message.reply_text(
-                    MESSAGES["added_to_cart"],
+                    "✅ به سبد خرید اضافه شد!",
                     reply_markup=ReplyKeyboardMarkup(KEYBOARD_MAIN, resize_keyboard=True)
                 )
             else:
-                await update.message.reply_text("❌ این محصول ناموجود است.")
+                await update.message.reply_text("❌ موجودی کالا تمام شده!")
             return
 
-    await update.message.reply_text("❗️محصول یافت نشد!")
+    await update.message.reply_text("❗️ محصول پیدا نشد!")
 
 async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     cart = user_carts.get(user.id, {})
+    
     if not cart:
-        await update.message.reply_text(MESSAGES["cart_empty"], reply_markup=ReplyKeyboardMarkup(KEYBOARD_MAIN, resize_keyboard=True))
+        await update.message.reply_text(MESSAGES["cart_empty"])
         return
     
     cart_text = MESSAGES["cart"]
@@ -122,51 +120,48 @@ async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         cart_text,
-        reply_markup=ReplyKeyboardMarkup(KEYBOARD_AFTER_ORDER, resize_keyboard=True)
-    )
-
-async def show_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        MESSAGES["contact"],
         reply_markup=ReplyKeyboardMarkup(KEYBOARD_MAIN, resize_keyboard=True)
     )
 
-async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        MESSAGES["welcome"],
-        reply_markup=ReplyKeyboardMarkup(KEYBOARD_MAIN, resize_keyboard=True)
-    )
-
-# Flask app برای health check
+# --- سرور Flask برای Health Check ---
 app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    return "Bot is running!", 200
+    return "ربات تلگرام در حال اجراست", 200
 
 def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+    serve(app, host='0.0.0.0', port=10000)
 
-def main():
-    # اجرای Flask در thread جداگانه
-    flask_thread = Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-
-    # ایجاد و اجرای ربات تلگرام
+# --- اجرای اصلی ---
+def run_bot():
     application = Application.builder().token(TOKEN).build()
     
-    # اضافه کردن هندلرها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🛍 محصولات$"), show_products))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^📞 تماس با ما$"), show_contact))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🛒 خرید "), add_to_cart))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🛒 خرید"), add_to_cart))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🛒 سبد خرید$"), show_cart))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🔙 بازگشت$"), back_to_main))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🏠 صفحه اصلی$"), back_to_main))
+    
+    application.run_polling(
+        clean=True,
+        drop_pending_updates=True,
+        close_loop=False
+    )
 
-    logger.info("Bot is starting...")
-    application.run_polling()
+def main():
+    if not bot_lock.acquire(blocking=False):
+        logger.warning("ربات از قبل در حال اجراست!")
+        return
+
+    try:
+        # اجرای Flask در یک thread جداگانه
+        flask_thread = Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        
+        # اجرای ربات تلگرام
+        run_bot()
+    finally:
+        bot_lock.release()
 
 if __name__ == "__main__":
     main()
