@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # --- تنظیمات ربات ---
 TOKEN = os.getenv('7708534005:AAHxcmWAs82atcdiNLwuPw_3CDX_3A_hIfs')
 if not TOKEN:
-    logger.error("لطفا TELEGRAM_BOT_TOKEN را در تنظیمات محیطی تنظیم کنید!")
+    logger.error("7708534005:AAHxcmWAs82atcdiNLwuPw_3CDX_3A_hIfs")
     exit(1)
 
 ADMIN_ID = int(os.getenv('ADMIN_ID', '7759311246'))
