@@ -1,6 +1,6 @@
 import os
 import logging
-from threading import Thread, Lock
+from threading import Thread
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -27,13 +27,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# قفل برای جلوگیری از اجرای چند نمونه
-bot_lock = Lock()
-
 # --- تنظیمات ربات ---
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '7708534005:AAHxcmWAs82atcdiNLwuPw_3CDX_3A_hIfs')
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 if not TOKEN:
-    logger.error("لطفا TELEGRAM_BOT_TOKEN را تنظیم کنید!")
+    logger.error("لطفا TELEGRAM_BOT_TOKEN را در تنظیمات محیطی تنظیم کنید!")
     exit(1)
 
 ADMIN_ID = int(os.getenv('ADMIN_ID', '7759311246'))
@@ -145,10 +142,16 @@ def run_flask():
     serve(app, host='0.0.0.0', port=port)
 
 # --- اجرای اصلی ---
-def run_bot():
+def main():
     try:
+        # اجرای Flask در یک thread جداگانه
+        flask_thread = Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        
+        # ساخت و اجرای ربات تلگرام
         application = Application.builder().token(TOKEN).build()
         
+        # ثبت هندلرها
         application.add_handler(CommandHandler("start", start))
         application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🛍 محصولات$"), show_products))
         application.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🛒 خرید"), add_to_cart))
@@ -156,33 +159,12 @@ def run_bot():
         
         logger.info("ربات تلگرام در حال راه‌اندازی...")
         application.run_polling(
-            clean=True,
-            drop_pending_updates=True,
-            close_loop=False,
-            read_timeout=30,
-            connect_timeout=10,
-            pool_timeout=10
+            drop_pending_updates=True,  # این تنها پارامتر مورد نیاز است
+            close_loop=False
         )
     except Exception as e:
-        logger.error(f"خطا در اجرای ربات: {e}", exc_info=True)
-        raise
-
-def main():
-    if not bot_lock.acquire(blocking=False):
-        logger.warning("ربات از قبل در حال اجراست!")
-        return
-
-    try:
-        # اجرای Flask در یک thread جداگانه
-        flask_thread = Thread(target=run_flask, daemon=True)
-        flask_thread.start()
-        
-        # اجرای ربات تلگرام
-        run_bot()
-    except Exception as e:
         logger.error(f"خطای اصلی: {e}", exc_info=True)
-    finally:
-        bot_lock.release()
+        raise
 
 if __name__ == "__main__":
     main()
