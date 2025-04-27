@@ -28,7 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- تنظیمات ربات ---
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TOKEN = os.getenv('7708534005:AAHxcmWAs82atcdiNLwuPw_3CDX_3A_hIfs')
 if not TOKEN:
     logger.error("لطفا TELEGRAM_BOT_TOKEN را در تنظیمات محیطی تنظیم کنید!")
     exit(1)
